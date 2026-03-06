@@ -1,68 +1,217 @@
+import pygame
 import time
 import tracemalloc
-from utils import is_valid, print_board
+import copy
+import sys
+
+WIDTH = 600
+HEIGHT = 750
+GRID_SIZE = 540
+CELL_SIZE = GRID_SIZE // 9
+MARGIN_X = (WIDTH - GRID_SIZE) // 2
+MARGIN_Y = 20
+
+UI_UPDATE_FREQ = 2 
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+BLUE = (0, 0, 255)
+RED = (200, 0, 0)
+GREEN = (0, 150, 0)
+BG_COLOR = (245, 245, 245)
+
 
 def get_mrv_cell(board):
-    min_options = 10
+    """
+    Quét toàn bộ bảng, tìm ô trống có SỐ LƯỢNG LỰA CHỌN hợp lệ ít nhất.
+    """
+    min_options = 10  # Khởi tạo một số lớn hơn 9 (vì Sudoku chỉ có tối đa 9 lựa chọn)
     best_cell = None
     
     for r in range(9):
         for c in range(9):
-            if board[r][c] == 0:
-                # Count valid options for this cell
+            if board[r][c] == 0: # Tìm thấy ô trống
+                
+                # Bắt đầu đếm xem ô này có thể điền được bao nhiêu số
                 options = 0
                 for num in range(1, 10):
                     if is_valid(board, r, c, num):
                         options += 1
                 
+                # Nếu số lựa chọn của ô này ít hơn kỷ lục hiện tại -> Cập nhật kỷ lục
                 if options < min_options:
                     min_options = options
                     best_cell = (r, c)
                     
-                if min_options == 1: # Optimization: only 1 choice left
+                # DÒNG CODE VÀNG (TỐI ƯU HÓA): 
+                # Nếu phát hiện một ô chỉ còn ĐÚNG 1 sự lựa chọn, 
+                # thì không cần tìm đâu xa nữa, trả về luôn ô này!
+                if min_options == 1: 
                     return best_cell
+                    
     return best_cell
 
-def solve_mrv(board):
+def is_valid(board, row, col, num):
+    """Kiểm tra xem đặt số 'num' vào vị trí (row, col) có hợp lệ không."""
+    # Kiểm tra hàng
+    for i in range(9):
+        if board[row][i] == num and col != i:
+            return False
+    # Kiểm tra cột
+    for i in range(9):
+        if board[i][col] == num and row != i:
+            return False
+    # Kiểm tra khối 3x3
+    box_x = col // 3
+    box_y = row // 3
+    for i in range(box_y * 3, box_y * 3 + 3):
+        for j in range(box_x * 3, box_x * 3 + 3):
+            if board[i][j] == num and (i, j) != (row, col):
+                return False
+    return True
+
+def solve_mrv(board, initial_board, ui_update_callback, stats):
+    """Vòng lặp đệ quy giải Sudoku bằng MRV.""" 
+    # Thay vì tìm ô trống đầu tiên, ta tìm ô bị chèn ép nhất!
     cell = get_mrv_cell(board)
+    
     if not cell:
-        return True
+        return True # Nếu không còn ô trống nào -> Đã giải xong!
     
     row, col = cell
+
     for i in range(1, 10):
         if is_valid(board, row, col, i):
             board[row][col] = i
+            stats['iterations'] += 1
 
-            if solve_mrv(board):
+            if stats['iterations'] % UI_UPDATE_FREQ == 0:
+                ui_update_callback(board, stats)
+
+            # Đệ quy đi tiếp
+            if solve_mrv(board, initial_board, ui_update_callback, stats):
                 return True
 
-            board[row][col] = 0 # Backtrack
+            # QUAY LUI (Backtrack)
+            board[row][col] = 0 
+            stats['iterations'] += 1
+            stats['backtracks'] += 1
+            
+            if stats['iterations'] % UI_UPDATE_FREQ == 0:
+                ui_update_callback(board, stats)
+
     return False
 
-if __name__ == "__main__":
-    # Use same board for comparison
+
+def draw_grid(screen):
+    """Vẽ lưới Sudoku."""
+    for i in range(10):
+        line_width = 4 if i % 3 == 0 else 1
+        pygame.draw.line(screen, BLACK, (MARGIN_X + i * CELL_SIZE, MARGIN_Y), 
+                         (MARGIN_X + i * CELL_SIZE, MARGIN_Y + GRID_SIZE), line_width)
+        pygame.draw.line(screen, BLACK, (MARGIN_X, MARGIN_Y + i * CELL_SIZE), 
+                         (MARGIN_X + GRID_SIZE, MARGIN_Y + i * CELL_SIZE), line_width)
+
+def draw_numbers(screen, font, current_board, initial_board):
+    """Vẽ các con số lên bảng."""
+    for r in range(9):
+        for c in range(9):
+            val = current_board[r][c]
+            if val != 0:
+                color = BLACK if initial_board[r][c] != 0 else BLUE
+                text_surface = font.render(str(val), True, color)
+                text_rect = text_surface.get_rect(center=(
+                    MARGIN_X + c * CELL_SIZE + CELL_SIZE // 2,
+                    MARGIN_Y + r * CELL_SIZE + CELL_SIZE // 2
+                ))
+                screen.blit(text_surface, text_rect)
+
+def draw_dashboard(screen, font_small, stats, runtime=None, memory=None):
+    """Vẽ bảng thông số ở phía dưới lưới Sudoku."""
+    pygame.draw.rect(screen, BG_COLOR, (0, MARGIN_Y + GRID_SIZE + 10, WIDTH, HEIGHT - GRID_SIZE))
+    
+    y_offset = MARGIN_Y + GRID_SIZE + 20
+    text_iter = font_small.render(f"Iterations (Steps): {stats['iterations']}", True, BLACK)
+    text_backtracks = font_small.render(f"Backtracks: {stats['backtracks']}", True, BLACK)
+    
+    screen.blit(text_iter, (MARGIN_X, y_offset))
+    screen.blit(text_backtracks, (MARGIN_X, y_offset + 30))
+    
+    if runtime is not None and memory is not None:
+        text_status = font_small.render("SOLVED!", True, GREEN)
+        text_time = font_small.render(f"Runtime: {runtime:.4f} s", True, BLACK)
+        text_mem = font_small.render(f"Peak Mem: {memory:.4f} MB", True, BLACK)
+        
+        screen.blit(text_status, (WIDTH - MARGIN_X - 150, y_offset))
+        screen.blit(text_time, (WIDTH - MARGIN_X - 150, y_offset + 30))
+        screen.blit(text_mem, (WIDTH - MARGIN_X - 150, y_offset + 60))
+    else:
+        text_status = font_small.render("SOLVING...", True, RED)
+        screen.blit(text_status, (WIDTH - MARGIN_X - 150, y_offset))
+
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Sudoku Solver - Backtracking / DFS")
+    
+    font_large = pygame.font.SysFont('arial', 40, bold=True)
+    font_small = pygame.font.SysFont('arial', 20)
+    
     example_board = [
-        [5, 3, 0, 0, 7, 0, 0, 0, 0],
-        [6, 0, 0, 1, 9, 5, 0, 0, 0],
-        [0, 9, 8, 0, 0, 0, 0, 6, 0],
-        [8, 0, 0, 0, 6, 0, 0, 0, 3],
-        [4, 0, 0, 8, 0, 3, 0, 0, 1],
-        [7, 0, 0, 0, 2, 0, 0, 0, 6],
-        [0, 6, 0, 0, 0, 0, 2, 8, 0],
-        [0, 0, 0, 4, 1, 9, 0, 0, 5],
-        [0, 0, 0, 0, 8, 0, 0, 7, 9]
+        [8, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 3, 6, 0, 0, 0, 0, 0],
+        [0, 7, 0, 0, 9, 0, 2, 0, 0],
+        [0, 5, 0, 0, 0, 7, 0, 0, 0],
+        [0, 0, 0, 0, 4, 5, 7, 0, 0],
+        [0, 0, 0, 1, 0, 0, 0, 3, 0],
+        [0, 0, 1, 0, 0, 0, 0, 6, 8],
+        [0, 0, 8, 5, 0, 0, 0, 1, 0],
+        [0, 9, 0, 0, 0, 0, 4, 0, 0]
     ]
+
+    working_board = copy.deepcopy(example_board)
+    stats = {'iterations': 0, 'backtracks': 0}
+
+    def update_ui(current_board, current_stats):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+                
+        screen.fill(BG_COLOR)
+        draw_grid(screen)
+        draw_numbers(screen, font_large, current_board, example_board)
+        draw_dashboard(screen, font_small, current_stats)
+        pygame.display.flip()
+
+    update_ui(working_board, stats)
+    time.sleep(1)
 
     tracemalloc.start()
     start_time = time.time()
 
-    if solve_mrv(example_board):
-        print("Sudoku solved via MRV Heuristic:")
-        print_board(example_board)
+    solve_mrv(working_board, example_board, update_ui, stats)
 
     end_time = time.time()
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
+    
+    runtime = end_time - start_time
+    peak_mem_mb = peak / 10**6
 
-    print(f"\nRuntime: {end_time - start_time:.4f} seconds")
-    print(f"Peak Memory: {peak / 10**6:.4f} MB")
+    screen.fill(BG_COLOR)
+    draw_grid(screen)
+    draw_numbers(screen, font_large, working_board, example_board)
+    draw_dashboard(screen, font_small, stats, runtime, peak_mem_mb)
+    pygame.display.flip()
+
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
