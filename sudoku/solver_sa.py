@@ -5,10 +5,12 @@ import copy
 import time
 import tracemalloc
 import sys
+from testcase import *   
+
 
 # Initial Variable
-INIT_TEMP = 10.0
-COOLING_RATE = 0.999999995
+INIT_TEMP = 10
+COOLING_RATE = 0.9999
 MIN_TEMP = 1e-5
 
 # Pygame resolution
@@ -157,17 +159,7 @@ def main():
     font_large = pygame.font.SysFont('arial', 40, bold=True)
     font_small = pygame.font.SysFont('arial', 20)
     
-    example_board = [
-        [8, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 3, 6, 0, 0, 0, 0, 0],
-        [0, 7, 0, 0, 9, 0, 2, 0, 0],
-        [0, 5, 0, 0, 0, 7, 0, 0, 0],
-        [0, 0, 0, 0, 4, 5, 7, 0, 0],
-        [0, 0, 0, 1, 0, 0, 0, 3, 0],
-        [0, 0, 1, 0, 0, 0, 0, 6, 8],
-        [0, 0, 8, 5, 0, 0, 0, 1, 0],
-        [0, 9, 0, 0, 0, 0, 4, 0, 0]
-    ]
+    example_board = EASY
 
     # Callback for update ui
     def update_ui(current_board, iterations, energy, temp):
